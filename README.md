@@ -1,5 +1,5 @@
 # ptt_crawler
 can crawl data from ptt
 
-$ pip install requests \n
+$ pip install requests <br>
 $ pip install beautifulsoup4
