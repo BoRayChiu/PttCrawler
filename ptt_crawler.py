@@ -42,19 +42,19 @@ class PTTCrawler:
         Returns:
             A list is formed with
             some dicts keys that are category and values are information.
-        For example:
-        [
-            {
-                'MetaInformation': 
-                {
-                    "作者": "bca321 (bcderf)",
-                    "標題": "[閒聊] HELLO WORLD!",
-                    "時間": "Thu Mar 23 17:43:05 2023"
-                }
-                'Contents': 'Hello World :P'
-                'Messages': {'abc123': 'HAHA.'}
-            }
-        ]
+            For example:
+                [
+                    {
+                        'MetaInformation': 
+                        {
+                            'Author': 'bca321 (bcderf)',
+                            'Title': '[閒聊] HELLO WORLD!',
+                            'Time': '2023-03-21 02:57:29'
+                        }
+                        'Contents': 'Hello World :P'
+                        'Messages': {'abc123': 'HAHA.'}
+                    }
+                ]
         """
         return self.__result_box
 
@@ -66,7 +66,7 @@ class PTTCrawler:
         Returns:
             HTML docs which type is sting.
             For example:
-            "<div>Hello!</div>"
+            '<div>Hello!</div>'
         """
         res = rq.post(url, headers=self.__headers)
         res.encoding = "utf-8"
@@ -144,9 +144,12 @@ class PTTCrawler:
         # If has meta information in topic page.
         if (topic_meta != []):
             # Select meta information and arrange it.
-            for topic_meta_info in topic_meta:
-                meta_box[topic_meta_info.select_one(".article-meta-tag").text.strip(
-                )] = topic_meta_info.select_one(".article-meta-value").text.strip()
+            meta_info = []
+            for t in topic_meta:
+                meta_info.append(t.select_one(".article-meta-value").text.strip())
+            meta_box["Author"] = meta_info[0]
+            meta_box["Title"] = meta_info[1]
+            meta_box["Time"] = normalization_time(meta_info[2])
             # Select contents.
             content = (topic.text.strip().split("--")[0]).split("\n")[1:]
             contents = " ".join(content)
@@ -165,3 +168,36 @@ class PTTCrawler:
             topic_box["Messages"] = message_box
             # Save Integrated result.
             self.__result_box.append(topic_box)
+
+def normalization_time(time:str):
+    """Set time format '%Y-%m-%d %H:%M:%S'.
+    
+    Args:
+        time: The time wnat to formatted.
+    Returns:
+        A time which type is string.
+        For example:
+            '2023-03-21 02:57:29'
+    """
+    month = {
+        "Jan": "01",
+        "Feb": "02",
+        "Mar": "03",
+        "Apr": "04",
+        "May": "05",
+        "Jun": "06",
+        "Jul": "07",
+        "Aug": "08",
+        "Sep": "09",
+        "Oct": "10",
+        "Nov": "11",
+        "Dec": "12"
+    }
+    y = time[20:]
+    m = month[time[4:7]]
+    d = time[8:10]
+    H = time[11:13]
+    M = time[14:16]
+    S = time[17:19]
+    formatted_time = "{}-{}-{} {}:{}:{}".format(y, m, d, H, M, S)
+    return formatted_time
