@@ -10,17 +10,11 @@ import requests as rq
 
 
 class PTTCrawler:
-    """Crawl data from PTT.
+    """Set basic information for crawling data from PTT."""
 
-    Attributes:
-        board: The board we want to crawl.
-        frequency: The number of pages we want to get.
-        loop: Event Loop.
-    """
-
-    def __init__(self, board: str, frequency: str, loop):
-        self.__base_url = "https://www.ptt.cc"
-        self.__headers = {
+    def __init__(self):
+        self._base_url = "https://www.ptt.cc"
+        self._headers = {
             "cookie":
                 "over18=1;",
             "User-Agent":
@@ -31,74 +25,49 @@ class PTTCrawler:
                     )
                 )
         }
-        self.__board = board
-        self.__frequency = frequency
-        self.__loop = loop
-        self.__result_box = []
 
-    def get_result(self) -> dict:
-        """Return the result.
-
-        Returns:
-            A list is formed with
-            some dicts keys that are category and values are information.
-            For example:
-                [
-                    {
-                        'MetaInformation': 
-                        {
-                            'Author': 'bca321 (bcderf)',
-                            'Title': '[閒聊] HELLO WORLD!',
-                            'Time': '2023-03-21 02:57:29'
-                        }
-                        'Contents': 'Hello World :P'
-                        'Messages': {'abc123': 'HAHA.'}
-                    }
-                ]
-        """
-        return self.__result_box
-
-    def __POST(self, url) -> str:
+    def _POST(self, url) -> str:
         """Return the HTML we crawl from website.
 
         Args:
             url: the website we want to crawl.
         Returns:
-            HTML docs which type is sting.
+            HTML which type is string.
             For example:
             '<div>Hello!</div>'
         """
-        res = rq.post(url, headers=self.__headers)
+        res = rq.post(url, headers=self._headers)
         res.encoding = "utf-8"
         return res
 
-    async def main(self):
-        """Manage crawl tasks.
+class PTTTopicUrlCrawler(PTTCrawler):
+    """Crawl Topic url from PTT.
 
-        Use asyncio way to manage crawlers.
-        While a crawler is I/Oing(ex: request the website),
-        execute other crawler.
-        So, we can save the time.
-        """
-        topic_urls = self.__topic_urls_crawler()
-        tasks = [asyncio.create_task(self.__data_crawler(
-            self.__base_url + url)) for url in topic_urls]
-        await asyncio.gather(*tasks)
-
-    def __topic_urls_crawler(self) -> list:
+    Attributes:
+        board: The board we want to crawl.
+        page: The number of pages we want to get.
+    """
+    def __init__(self, board: str, page: str):
+        super().__init__()
+        self.__board = board
+        self.__frequency = page
+    
+    @property
+    def result(self) -> list:
         """Collect topic urls.
 
+        Inherit from PTTCrawler.
         Request the index page. Collect topic urls.
         Returns:
             A list that is filled with topic urls(type is string).
             For example:
-            ["https://www.ptt.cc/bbs/XXX/XXX.html"]
+            ["/bbs/XXX/XXX.html"]
         """
         topic_urls = []
-        url = "{}/bbs/{}/index.html".format(self.__base_url, self.__board)
+        url = "{}/bbs/{}/index.html".format(self._base_url, self.__board)
         for i in range(int(self.__frequency)):
             # Get html docs.
-            index_topic_list = self.__POST(url)
+            index_topic_list = self._POST(url)
             # bs4 html docs.
             index_topic_list_soup = bsp(
                 index_topic_list.text.strip(), "html.parser")
@@ -116,61 +85,127 @@ class PTTCrawler:
                 if (sub_url is not None):
                     topic_urls.append(sub_url["href"])
             print(f"Page {i + 1} urls is collected. ")
-            # url is changed to next page.
+            # current url is changed to next page.
             url = "{}{}".format(
-                self.__base_url,
+                self._base_url,
                 (index_topic_list_soup.select(".btn.wide"))[1]["href"]
             )
         return topic_urls
 
+class PTTTopicCrawler(PTTCrawler):
+    """Crawl data from PTT using topic_urls.
+
+    Inherit from PTTCrawler.
+    Attributes:
+        topic_urls: 
+            The urls we want to crawl.
+            For example:
+                '/bbs/Doctor-Info/M.1681350010.A.BDB.html'
+        loop: Event Loop.
+    """
+
+    def __init__(self, topic_urls, loop):
+        super().__init__()
+        self.__topic_urls = topic_urls
+        self.__loop = loop
+        self.__result_box = []
+
     async def __data_crawler(self, url: str):
-        """Gather informations we want from PTT topics.
+        """Gather datas we want from PTT topic.
 
         Args:
-            url: the website we want to crawl.
+            url: the topic url we want to crawl.
         """
         topic_box = {}
         # Get html docs.
-        topic_result = await self.__loop.run_in_executor(None, self.__POST, url)
+        topic_result = await self.__loop.run_in_executor(None, self._POST, url)
         # bs4 html docs.
         topic_result_soup = bsp(topic_result.text, "html.parser")
         topic = topic_result_soup.select_one(".bbs-screen.bbs-content")
         # Select meta informations.
         topic_meta = topic.select(".article-metaline")
-        meta_box = {}
         # Select messages.
         topic_messages = topic.select(".push")
         message_box = {}
         # If has meta information in topic page.
         if (topic_meta != []):
-            # Select meta information and arrange it.
+            # Url
+            topic_box["Url"] = url
+            # Select meta information.
             meta_info = []
             for t in topic_meta:
                 meta_info.append(t.select_one(".article-meta-value").text.strip())
-            meta_box["Author"] = meta_info[0]
-            meta_box["Title"] = meta_info[1]
-            meta_box["Time"] = normalization_time(meta_info[2])
-            # Select contents.
+            # Author
+            topic_box["Author"] = meta_info[0]
+            # Title
+            topic_box["Title"] = meta_info[1]
+            # Time
+            topic_box["Time"] = normalization_time(meta_info[2])
+            # Contents
             content = (topic.text.strip().split("--")[0]).split("\n")[1:]
             contents = " ".join(content)
-            # Select message and arrange it.
+            topic_box["Contents"] = contents
+            # Messages
             for message in topic_messages:
                 message_content = message.select_one(".push-content")
                 if (message_content.select_one("a") is not None):
                     continue
                 message_userid = message.select_one(
                     ".push-userid").text.strip()
-                message_box[message_userid] = message_box.get(
-                    message_userid, "") + " " + message_content.text.strip().strip(":").strip()
-            # Integrate neta informtaions, contents and messages.
-            topic_box["MetaInformation"] = meta_box
-            topic_box["Contents"] = contents
-            topic_box["Messages"] = message_box
-            # Save Integrated result.
+                message_box[message_userid] = "".join(
+                    (
+                        message_box.get(message_userid, ""),
+                        " ",
+                        message_content.text.strip().strip(":").strip()
+                    )
+                )
+            messages = []
+            for key, value in message_box.items():
+                messages.append({"Author": key, "Contents": value})
+            topic_box["Messages"] = messages
+            # Save result.
             self.__result_box.append(topic_box)
 
+    async def __main(self):
+        """Manage crawl tasks.
+
+        Use asyncio way to manage crawlers.
+        While a crawler is I/Oing(ex: request the website),
+        execute other crawler.
+        So, we can save the time.
+        """
+        tasks = [asyncio.create_task(self.__data_crawler(
+            self._base_url + url)) for url in self.__topic_urls]
+        await asyncio.gather(*tasks)
+
+    @property
+    def result(self) -> list:
+        """Return the result.
+
+        Returns:
+            A list is formed with
+            some dicts keys that are category and values are information.
+            For example:
+                [
+                    {
+                        'Url': 'https://www.ptt.cc/bbs/Doctor/XXXX.html',
+                        'Author': 'bca321 (bcderf)',
+                        'Title': '[閒聊] HELLO WORLD!',
+                        'Time': '2023-03-21 02:57:29'
+                        'Contents': 'Hello World :P'
+                        'Messages': 
+                        {
+                            'Author': 'abc123',
+                            'Contents': 'HAHA.'
+                        }
+                    }
+                ]
+        """
+        self.__loop.run_until_complete(self.__main())
+        return self.__result_box
+
 def normalization_time(time:str):
-    """Set time format '%Y-%m-%d %H:%M:%S'.
+    """Set time format to '%Y-%m-%d %H:%M:%S'.
     
     Args:
         time: The time wnat to formatted.
@@ -201,3 +236,15 @@ def normalization_time(time:str):
     S = time[17:19]
     formatted_time = "{}-{}-{} {}:{}:{}".format(y, m, d, H, M, S)
     return formatted_time
+
+# How to use:
+if __name__ == "__main__":
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    t = PTTTopicUrlCrawler("lol", "2")
+    urls = t.result
+    print(urls)
+    print("========")
+    c = PTTTopicCrawler(urls, loop)
+    for r in c.result:
+        print(r)
