@@ -4,6 +4,7 @@ It will crawl the data from PTT and generate crawl result.
 """
 
 import asyncio
+import datetime
 
 from bs4 import BeautifulSoup as bsp
 import requests as rq
@@ -41,16 +42,14 @@ class PTTCrawler:
         return res
 
 class PTTTopicUrlCrawler(PTTCrawler):
-    """Crawl Topic url from PTT.
+    """Crawl topic url last day from PTT.
 
     Attributes:
         board: The board we want to crawl.
-        page: The number of pages we want to get.
     """
-    def __init__(self, board: str, page: str):
+    def __init__(self, board: str):
         super().__init__()
         self.__board = board
-        self.__frequency = page
     
     @property
     def result(self) -> list:
@@ -65,7 +64,9 @@ class PTTTopicUrlCrawler(PTTCrawler):
         """
         topic_urls = []
         url = "{}/bbs/{}/index.html".format(self._base_url, self.__board)
-        for i in range(int(self.__frequency)):
+        today = formalization_date(datetime.date.today())
+        load_more = True
+        while load_more:
             # Get html docs.
             index_topic_list = self._POST(url)
             # bs4 html docs.
@@ -80,12 +81,16 @@ class PTTTopicUrlCrawler(PTTCrawler):
             else:
                 topics = index_topic_list_soup.select(".r-ent")
             # Select topic urls.
-            for topic in topics:
-                sub_url = topic.select_one(".title > a")
+            for i in range(len(topics)):
+                sub_url = topics[i].select_one(".title > a")
                 if (sub_url is not None):
                     topic_urls.append(sub_url["href"])
-            print(f"Page {i + 1} urls is collected. ")
-            # current url is changed to next page.
+                # topic date
+                date = topics[i].select_one(".date").text.strip()
+                if date != today:
+                    load_more = False
+                    break
+            # Current url is changed to next page.
             url = "{}{}".format(
                 self._base_url,
                 (index_topic_list_soup.select(".btn.wide"))[1]["href"]
@@ -140,7 +145,7 @@ class PTTTopicCrawler(PTTCrawler):
             # Title
             topic_box["Title"] = meta_info[1]
             # Time
-            topic_box["Time"] = normalization_time(meta_info[2])
+            topic_box["Time"] = formalization_time(meta_info[2])
             # Contents
             content = (topic.text.strip().split("--")[0]).split("\n")[1:]
             contents = " ".join(content)
@@ -204,7 +209,7 @@ class PTTTopicCrawler(PTTCrawler):
         self.__loop.run_until_complete(self.__main())
         return self.__result_box
 
-def normalization_time(time:str):
+def formalization_time(time:str) -> str:
     """Set time format to '%Y-%m-%d %H:%M:%S'.
     
     Args:
@@ -237,11 +242,18 @@ def normalization_time(time:str):
     formatted_time = "{}-{}-{} {}:{}:{}".format(y, m, d, H, M, S)
     return formatted_time
 
+def formalization_date(today: datetime.date) -> str:
+    month = today.month
+    day = today.day
+    if day <= 9:
+        return "{}/0{}".format(month, day)
+    return "{}/{}".format(month, day)
+
 # How to use:
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    t = PTTTopicUrlCrawler("lol", "2")
+    t = PTTTopicUrlCrawler("doctor-info")
     urls = t.result
     print(urls)
     print("========")
